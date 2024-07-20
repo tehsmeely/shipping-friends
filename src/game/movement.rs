@@ -3,9 +3,14 @@
 //! If you want to move the player in a smoother way,
 //! consider using a [fixed timestep](https://github.com/bevyengine/bevy/blob/latest/examples/movement/physics_in_fixed_timestep.rs).
 
-use bevy::{prelude::*, window::PrimaryWindow};
-
+use crate::game::controls::{CameraAction, PlayerAction};
+use crate::game::spawn::level::TilemapOffset;
 use crate::AppSet;
+use bevy::{prelude::*, window::PrimaryWindow};
+use bevy_ecs_tilemap::map::TilemapType;
+use bevy_ecs_tilemap::prelude::TilemapGridSize;
+use bevy_ecs_tilemap::tiles::TilePos;
+use leafwing_input_manager::action_state::ActionState;
 
 pub(super) fn plugin(app: &mut App) {
     // Record directional input as movement controls.
@@ -23,6 +28,52 @@ pub(super) fn plugin(app: &mut App) {
             .chain()
             .in_set(AppSet::Update),
     );
+
+    app.register_type::<AutoTilePosPlacement>();
+    app.add_systems(Update, (auto_tile_pos, handle_player_movement));
+}
+
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+/// Automatically place entities with this property in the transform with their TilePos
+pub struct AutoTilePosPlacement;
+
+fn auto_tile_pos(
+    mut query: Query<(&TilePos, &mut Transform), (With<AutoTilePosPlacement>, Changed<TilePos>)>,
+    map_query: Query<(&TilemapGridSize, &TilemapType)>,
+    tilemap_offset: Res<TilemapOffset>,
+) {
+    if let Ok((tm_grid_size, tm_type)) = map_query.get_single() {
+        for (tile_pos, mut transform) in &mut query {
+            let world_pos = tile_pos.center_in_world(tm_grid_size, tm_type);
+            let world_pos = world_pos + tilemap_offset.0.translation.truncate();
+            transform.translation = world_pos.extend(transform.translation.z);
+        }
+    }
+}
+
+fn handle_player_movement(mut camera_query: Query<(&mut TilePos, &ActionState<PlayerAction>)>) {
+    for (mut tilepos, inputs) in &mut camera_query {
+        if let Some(action) = PlayerAction::ALL
+            .iter()
+            .find(|action| inputs.just_pressed(action))
+        {
+            match action {
+                PlayerAction::Up => {
+                    tilepos.y += 1;
+                }
+                PlayerAction::Down => {
+                    tilepos.y -= 1;
+                }
+                PlayerAction::Left => {
+                    tilepos.x -= 1;
+                }
+                PlayerAction::Right => {
+                    tilepos.x += 1;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Component, Reflect, Default)]

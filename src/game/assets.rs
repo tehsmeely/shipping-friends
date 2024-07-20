@@ -8,6 +8,9 @@ pub(super) fn plugin(app: &mut App) {
     app.register_type::<HandleMap<ImageKey>>();
     app.init_resource::<HandleMap<ImageKey>>();
 
+    app.register_type::<HandleMap<AtlasLayoutKey>>();
+    app.init_resource::<HandleMap<AtlasLayoutKey>>();
+
     app.register_type::<HandleMap<SfxKey>>();
     app.init_resource::<HandleMap<SfxKey>>();
 
@@ -18,24 +21,115 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Reflect)]
 pub enum ImageKey {
     Ducky,
+    BasicTileSet,
+    BulkLoadVessel,
+    LoadingCrane,
+    OverlayMarker,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Reflect)]
+pub enum AtlasLayoutKey {
+    BasicTileSet,
+    BulkLoadVessel,
+    LoadingCrane,
 }
 
 impl AssetKey for ImageKey {
     type Asset = Image;
 }
+impl AssetKey for AtlasLayoutKey {
+    type Asset = TextureAtlasLayout;
+}
 
 impl FromWorld for HandleMap<ImageKey> {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
-        [(
-            ImageKey::Ducky,
-            asset_server.load_with_settings(
-                "images/ducky.png",
-                |settings: &mut ImageLoaderSettings| {
-                    settings.sampler = ImageSampler::nearest();
-                },
+        [
+            (
+                ImageKey::Ducky,
+                asset_server.load_with_settings(
+                    "images/ducky.png",
+                    |settings: &mut ImageLoaderSettings| {
+                        settings.sampler = ImageSampler::nearest();
+                    },
+                ),
             ),
-        )]
+            (
+                ImageKey::BasicTileSet,
+                asset_server.load_with_settings(
+                    "images/basic_tiles.png",
+                    |settings: &mut ImageLoaderSettings| {
+                        settings.sampler = ImageSampler::nearest();
+                    },
+                ),
+            ),
+            (
+                ImageKey::BulkLoadVessel,
+                asset_server.load_with_settings(
+                    "images/bulk_load_vessel.png",
+                    |settings: &mut ImageLoaderSettings| {
+                        settings.sampler = ImageSampler::nearest();
+                    },
+                ),
+            ),
+            (
+                ImageKey::LoadingCrane,
+                asset_server.load_with_settings(
+                    "images/ship_loading_crane.png",
+                    |settings: &mut ImageLoaderSettings| {
+                        settings.sampler = ImageSampler::nearest();
+                    },
+                ),
+            ),
+            (
+                ImageKey::OverlayMarker,
+                asset_server.load_with_settings(
+                    "images/overlay_marker.png",
+                    |settings: &mut ImageLoaderSettings| {
+                        settings.sampler = ImageSampler::nearest();
+                    },
+                ),
+            ),
+        ]
+        .into()
+    }
+}
+
+impl FromWorld for HandleMap<AtlasLayoutKey> {
+    fn from_world(world: &mut World) -> Self {
+        let mut texture_atlas_layouts = world.resource_mut::<Assets<TextureAtlasLayout>>();
+        [
+            (
+                AtlasLayoutKey::BasicTileSet,
+                texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+                    UVec2::splat(100),
+                    2,
+                    1,
+                    None,
+                    None,
+                )),
+            ),
+            (
+                AtlasLayoutKey::BulkLoadVessel,
+                texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+                    UVec2::new(200, 80),
+                    9,
+                    1,
+                    None,
+                    None,
+                )),
+            ),
+            (
+                AtlasLayoutKey::LoadingCrane,
+                texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+                    UVec2::splat(100),
+                    6,
+                    1,
+                    None,
+                    None,
+                )),
+            ),
+        ]
         .into()
     }
 }

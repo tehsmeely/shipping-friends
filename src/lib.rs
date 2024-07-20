@@ -4,11 +4,15 @@ mod game;
 mod screen;
 mod ui;
 
+use crate::game::controls::setup_camera_controls;
 use bevy::{
     asset::AssetMetaCheck,
     audio::{AudioPlugin, Volume},
     prelude::*,
 };
+use bevy_ecs_tilemap::TilemapPlugin;
+use bevy_egui::EguiPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 pub struct AppPlugin;
 
@@ -52,7 +56,10 @@ impl Plugin for AppPlugin {
                 }),
         );
 
-        // Add other plugins.
+        // Add external plugins
+        app.add_plugins((TilemapPlugin, EguiPlugin, WorldInspectorPlugin::new()));
+
+        // Add internal plugins.
         app.add_plugins((game::plugin, screen::plugin, ui::plugin));
 
         // Enable dev tools for dev builds.
@@ -85,5 +92,6 @@ fn spawn_camera(mut commands: Commands) {
         // [ui node outlines](https://bevyengine.org/news/bevy-0-14/#ui-node-outline-gizmos)
         // for debugging. So it's good to have this here for future-proofing.
         IsDefaultUiCamera,
+        setup_camera_controls(),
     ));
 }

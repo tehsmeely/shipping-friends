@@ -1,7 +1,10 @@
 //! Spawn the player.
 
-use bevy::prelude::*;
-
+use crate::game::assets::AtlasLayoutKey;
+use crate::game::camera::CameraFollow;
+use crate::game::controls::setup_movement_controls;
+use crate::game::movement::AutoTilePosPlacement;
+use crate::game::spawn::level::get_start;
 use crate::{
     game::{
         animation::PlayerAnimation,
@@ -10,6 +13,8 @@ use crate::{
     },
     screen::Screen,
 };
+use bevy::prelude::*;
+use bevy_ecs_tilemap::tiles::TilePos;
 
 pub(super) fn plugin(app: &mut App) {
     app.observe(spawn_player);
@@ -27,32 +32,27 @@ fn spawn_player(
     _trigger: Trigger<SpawnPlayer>,
     mut commands: Commands,
     image_handles: Res<HandleMap<ImageKey>>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    texture_atlas_layouts: Res<HandleMap<AtlasLayoutKey>>,
 ) {
-    // A texture atlas is a way to split one image with a grid into multiple sprites.
-    // By attaching it to a [`SpriteBundle`] and providing an index, we can specify which section of the image we want to see.
-    // We will use this to animate our player character. You can learn more about texture atlases in this example:
-    // https://github.com/bevyengine/bevy/blob/latest/examples/2d/texture_atlas.rs
-    let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 6, 2, Some(UVec2::splat(1)), None);
-    let texture_atlas_layout = texture_atlas_layouts.add(layout);
-    let player_animation = PlayerAnimation::new();
-
+    let layout = texture_atlas_layouts[&AtlasLayoutKey::BulkLoadVessel].clone();
+    let start = get_start();
     commands.spawn((
         Name::new("Player"),
         Player,
         SpriteBundle {
-            texture: image_handles[&ImageKey::Ducky].clone_weak(),
-            transform: Transform::from_scale(Vec2::splat(8.0).extend(1.0)),
+            texture: image_handles[&ImageKey::BulkLoadVessel].clone(),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0))
+                .with_scale(Vec3::splat(0.5)),
             ..Default::default()
         },
-        TextureAtlas {
-            layout: texture_atlas_layout.clone(),
-            index: player_animation.get_atlas_index(),
-        },
-        MovementController::default(),
-        Movement { speed: 420.0 },
-        WrapWithinWindow,
-        player_animation,
+        TextureAtlas { layout, index: 0 },
         StateScoped(Screen::Playing),
+        TilePos {
+            x: start.0,
+            y: start.1,
+        },
+        AutoTilePosPlacement,
+        setup_movement_controls(),
+        CameraFollow { threshold: 300.0 },
     ));
 }
