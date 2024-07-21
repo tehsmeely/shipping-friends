@@ -4,7 +4,7 @@
 //! consider using a [fixed timestep](https://github.com/bevyengine/bevy/blob/latest/examples/movement/physics_in_fixed_timestep.rs).
 
 use crate::game::controls::{CameraAction, PlayerAction};
-use crate::game::game_ui::TurnAction;
+use crate::game::game_ui::{CycleNum, GlobalTurnLock, TurnAction, TurnActions};
 use crate::game::spawn::level::TilemapOffset;
 use crate::AppSet;
 use bevy::reflect::{ApplyError, ReflectMut, ReflectOwned, ReflectRef, TypeInfo};
@@ -133,15 +133,22 @@ fn handle_player_movement(mut camera_query: Query<(&mut TilePos, &ActionState<Pl
 }
 
 #[derive(Event, Debug)]
-pub struct ApplyTurnActions(pub Vec<TurnAction>);
+pub struct ApplyTurnActions(pub TurnActions);
 
 fn apply_turn_actions(
     trigger: Trigger<ApplyTurnActions>,
     mut player_query: Query<(&mut Facing, &mut TilePos)>,
+    mut global_turn_lock: ResMut<GlobalTurnLock>,
+    mut cycle_num: ResMut<CycleNum>,
 ) {
     for (mut facing, mut tilepos) in player_query.iter_mut() {
-        for action in trigger.event().0.iter() {
-            action.apply(&mut facing, &mut tilepos);
+        let turn_actions = trigger.event();
+        for action in turn_actions.0.clone().0.iter() {
+            if let Some(action) = action {
+                action.apply(&mut facing, &mut tilepos);
+            }
         }
+        global_turn_lock.unlock();
+        cycle_num.increment();
     }
 }

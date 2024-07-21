@@ -2,10 +2,13 @@ use crate::game::movement::{ApplyTurnActions, Facing};
 use crate::screen::Screen;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::tiles::TilePos;
-use bevy_egui::egui::{vec2, Color32, Frame, Id, WidgetText};
+use bevy_egui::egui::{vec2, Color32, Frame, Id, Stroke, WidgetText};
 use bevy_egui::{egui, EguiContexts};
 
 pub fn plugin(app: &mut App) {
+    app.init_resource::<GlobalTurnLock>();
+    app.init_resource::<CycleNum>();
+    app.register_type::<(GlobalTurnLock, CycleNum)>();
     app.add_systems(OnEnter(Screen::Playing), setup);
     app.add_systems(Update, (do_ui).run_if(in_state(Screen::Playing)));
 }
@@ -15,6 +18,23 @@ pub enum TurnAction {
     Forward,
     RotateClockwise,
     RotateAntiClockwise,
+}
+
+#[derive(Clone, Debug, Resource, Reflect)]
+#[reflect(Resource)]
+pub struct GlobalTurnLock {
+    locked: bool,
+}
+impl Default for GlobalTurnLock {
+    fn default() -> Self {
+        Self { locked: false }
+    }
+}
+
+impl GlobalTurnLock {
+    pub fn unlock(&mut self) {
+        self.locked = false;
+    }
 }
 
 fn safe_u32_add(a: u32, b: i32) -> u32 {
@@ -58,17 +78,61 @@ impl Into<WidgetText> for TurnAction {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TurnActions(pub [Option<TurnAction>; 6]);
+
+#[derive(Clone, Debug, Resource, Reflect)]
+#[reflect(Resource)]
+pub struct CycleNum {
+    cycle_num: usize,
+    turn_num: usize,
+    turns_per_cycle: usize,
+}
+
+impl CycleNum {
+    pub fn increment(&mut self) {
+        self.turn_num += 1;
+        if self.turn_num >= self.turns_per_cycle {
+            self.turn_num = 0;
+            self.cycle_num += 1;
+        }
+    }
+
+    fn display_cycle_num(&self) -> String {
+        format!("Cycle: {}", self.cycle_num + 1)
+    }
+    fn display_turn_num(&self) -> String {
+        format!("Turn: {}/{}", self.turn_num + 1, self.turns_per_cycle)
+    }
+}
+
+impl Default for CycleNum {
+    fn default() -> Self {
+        Self {
+            cycle_num: 0,
+            turn_num: 0,
+            turns_per_cycle: 6,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum ColumnName {
+    Active,
+    Store,
+}
+
 #[derive(Clone, Debug, Resource)]
 pub struct CycleStore {
-    action_column: Vec<TurnAction>,
-    available_actions: Vec<TurnAction>,
+    turn_actions: TurnActions,
+    store: Vec<TurnAction>,
 }
 
 impl CycleStore {
     pub fn new() -> Self {
         Self {
-            action_column: vec![TurnAction::Forward],
-            available_actions: vec![
+            turn_actions: TurnActions([None; 6]),
+            store: vec![
                 TurnAction::Forward,
                 TurnAction::RotateClockwise,
                 TurnAction::RotateAntiClockwise,
@@ -76,46 +140,50 @@ impl CycleStore {
         }
     }
 
-    fn columns(&self) -> Vec<Vec<TurnAction>> {
-        vec![self.action_column.clone(), self.available_actions.clone()]
-    }
-
-    fn get_column_mut(&mut self, idx: usize) -> &mut Vec<TurnAction> {
-        match idx {
-            0 => &mut self.action_column,
-            1 => &mut self.available_actions,
-            _ => panic!("Invalid column index"),
-        }
-    }
-
-    fn next(&mut self) {
-        self.action_column.push(self.available_actions.remove(0));
-        if self.available_actions.is_empty() {
-            self.available_actions = vec![
-                TurnAction::Forward,
-                TurnAction::RotateClockwise,
-                TurnAction::RotateAntiClockwise,
-            ];
-        }
-    }
-
     fn clear(&mut self) {
-        self.available_actions.extend(self.action_column.drain(..));
+        for elt in self.turn_actions.0.iter_mut() {
+            if let Some(elt) = elt {
+                self.store.push(*elt);
+            }
+            *elt = None;
+        }
     }
 
-    fn current(&self) -> TurnAction {
-        self.action_column[0]
+    fn take(&mut self, col: ColumnName, row: usize) -> Option<TurnAction> {
+        match col {
+            ColumnName::Active => {
+                if row < self.turn_actions.0.len() {
+                    self.turn_actions.0[row].take()
+                } else {
+                    None
+                }
+            }
+            ColumnName::Store => Some(self.store.remove(row)),
+        }
     }
 
-    fn consume(&mut self) -> TurnAction {
-        self.action_column.remove(0)
+    fn take_turn_actions(&mut self) -> TurnActions {
+        let populated = self.turn_actions.clone();
+        self.turn_actions = TurnActions([None; 6]);
+        populated
+    }
+
+    fn add(&mut self, col: ColumnName, row: usize, action: TurnAction) {
+        match col {
+            ColumnName::Active => {
+                if row < self.turn_actions.0.len() {
+                    self.turn_actions.0[row] = Some(action)
+                }
+            }
+            ColumnName::Store => self.store.insert(row, action),
+        }
     }
 }
 
 /// What is being dragged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Location {
-    col: usize,
+    col: ColumnName,
     row: usize,
 }
 
@@ -123,7 +191,13 @@ fn setup(mut commands: Commands) {
     commands.insert_resource(CycleStore::new());
 }
 
-fn do_ui(mut commands: Commands, mut contexts: EguiContexts, mut cycle_store: ResMut<CycleStore>) {
+fn do_ui(
+    mut commands: Commands,
+    mut contexts: EguiContexts,
+    mut cycle_store: ResMut<CycleStore>,
+    cycle_num: Res<CycleNum>,
+    mut global_turn_lock: ResMut<GlobalTurnLock>,
+) {
     egui::Window::new("Game UI")
         .anchor(egui::Align2::RIGHT_BOTTOM, vec2(0.0, 0.0))
         .show(contexts.ctx_mut(), |ui| {
@@ -131,22 +205,77 @@ fn do_ui(mut commands: Commands, mut contexts: EguiContexts, mut cycle_store: Re
             let mut from = None;
             let mut to = None;
 
+            ui.label(cycle_num.display_cycle_num());
+            ui.label(cycle_num.display_turn_num());
+
             ui.columns(2, |uis| {
-                for (col_idx, column) in cycle_store.columns().into_iter().enumerate() {
-                    let ui = &mut uis[col_idx];
+                if global_turn_lock.locked {
+                    for ui in uis.iter_mut() {
+                        ui.disable();
+                    }
+                }
+
+                // Active Column
+                {
+                    let ui = &mut uis[0];
+                    let frame = Frame::default().inner_margin(4.0);
+
+                    for (idx, elt) in cycle_store.turn_actions.0.iter().enumerate() {
+                        let (_, dropped_payload) = ui.dnd_drop_zone::<Location, ()>(frame, |ui| {
+                            ui.set_min_size(vec2(64.0, 30.0));
+
+                            let item_id = Id::new(("drag_and_drop_cycle", ColumnName::Active, idx));
+                            let item_location = Location {
+                                col: ColumnName::Active,
+                                row: idx,
+                            };
+                            let _label: WidgetText = match elt {
+                                Some(action) => (*action).into(),
+                                None => "Wait".into(),
+                            };
+                            match elt {
+                                Some(action) => {
+                                    ui.dnd_drag_source(item_id, item_location, |ui| {
+                                        ui.label(*action);
+                                    });
+                                }
+                                None => {
+                                    ui.label("Wait");
+                                }
+                            }
+                        });
+                        if let Some(dragged_payload) = dropped_payload {
+                            // The user dropped onto the whole area, which is what we want for this
+                            from = Some(dragged_payload);
+                            to = Some(Location {
+                                col: ColumnName::Active,
+                                row: idx,
+                            });
+                        }
+                    }
+                }
+
+                // Store Column
+                {
+                    let ui = &mut uis[1];
 
                     let frame = Frame::default().inner_margin(4.0);
 
                     let (_, dropped_payload) = ui.dnd_drop_zone::<Location, ()>(frame, |ui| {
                         ui.set_min_size(vec2(64.0, 100.0));
-                        for (row_idx, item) in column.iter().enumerate() {
-                            let item_id = Id::new(("my_drag_and_drop_demo", col_idx, row_idx));
+                        for (row_idx, item) in cycle_store.store.iter().enumerate() {
+                            let item_id =
+                                Id::new(("drag_and_drop_cycle", ColumnName::Store, row_idx));
                             let item_location = Location {
-                                col: col_idx,
+                                col: ColumnName::Store,
                                 row: row_idx,
                             };
                             let response = ui
                                 .dnd_drag_source(item_id, item_location, |ui| {
+                                    // I'd like to have a frame and whatnot here, but adding
+                                    // frames results in a debug assertion failure.
+                                    // See: https://github.com/emilk/egui/issues/4604
+
                                     ui.label(*item);
                                 })
                                 .response;
@@ -178,7 +307,7 @@ fn do_ui(mut commands: Commands, mut contexts: EguiContexts, mut cycle_store: Re
                                     // The user dropped onto this item.
                                     from = Some(dragged_payload);
                                     to = Some(Location {
-                                        col: col_idx,
+                                        col: ColumnName::Store,
                                         row: insert_row_idx,
                                     });
                                 }
@@ -190,19 +319,10 @@ fn do_ui(mut commands: Commands, mut contexts: EguiContexts, mut cycle_store: Re
                         // The user dropped onto the column, but not on any one item.
                         from = Some(dragged_payload);
                         to = Some(Location {
-                            col: col_idx,
-                            row: usize::MAX, // Inset last
+                            col: ColumnName::Store,
+                            row: cycle_store.store.len(),
                         });
                     }
-                }
-            });
-
-            ui.horizontal(|ui| {
-                if ui.button("Clear").clicked() {
-                    cycle_store.clear();
-                }
-                if ui.button("Go").clicked() {
-                    commands.trigger(ApplyTurnActions(cycle_store.action_column.clone()));
                 }
             });
 
@@ -213,11 +333,23 @@ fn do_ui(mut commands: Commands, mut contexts: EguiContexts, mut cycle_store: Re
                     to.row -= (from.row < to.row) as usize;
                 }
 
-                let item = cycle_store.get_column_mut(from.col).remove(from.row);
-
-                let column = &mut cycle_store.get_column_mut(to.col);
-                to.row = to.row.min(column.len());
-                column.insert(to.row, item);
+                //let item = cycle_store.get_column_mut(from.col).remove(from.row);
+                if let Some(item) = cycle_store.take(from.col, from.row) {
+                    cycle_store.add(to.col, to.row, item);
+                }
             }
+
+            ui.horizontal(|ui| {
+                if global_turn_lock.locked {
+                    ui.disable();
+                }
+                if ui.button("Clear").clicked() {
+                    cycle_store.clear();
+                }
+                if ui.button("Go").clicked() {
+                    global_turn_lock.locked = true;
+                    commands.trigger(ApplyTurnActions(cycle_store.take_turn_actions()));
+                }
+            });
         });
 }
