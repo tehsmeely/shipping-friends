@@ -7,6 +7,9 @@ pub(super) fn plugin(app: &mut App) {
     app.observe(play_soundtrack);
 }
 
+#[derive(Component, Default, Debug, Reflect)]
+pub struct MusicPlayer;
+
 fn play_soundtrack(
     trigger: Trigger<PlaySoundtrack>,
     mut commands: Commands,
@@ -29,6 +32,7 @@ fn play_soundtrack(
                 ..default()
             },
         },
+        MusicPlayer,
         IsSoundtrack,
     ));
 }

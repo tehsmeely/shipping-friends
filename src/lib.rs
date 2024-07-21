@@ -59,6 +59,8 @@ impl Plugin for AppPlugin {
         // Add external plugins
         app.add_plugins((TilemapPlugin, EguiPlugin, WorldInspectorPlugin::new()));
 
+        app.init_resource::<game::settings::Settings>();
+
         // Add internal plugins.
         app.add_plugins((game::plugin, screen::plugin, ui::plugin));
 

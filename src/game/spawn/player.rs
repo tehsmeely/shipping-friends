@@ -3,17 +3,14 @@
 use crate::game::assets::AtlasLayoutKey;
 use crate::game::camera::CameraFollow;
 use crate::game::controls::setup_movement_controls;
-use crate::game::movement::AutoTilePosPlacement;
+use crate::game::movement::{AutoTilePosPlacement, Facing};
 use crate::game::spawn::level::get_start;
 use crate::{
-    game::{
-        animation::PlayerAnimation,
-        assets::{HandleMap, ImageKey},
-        movement::{Movement, MovementController, WrapWithinWindow},
-    },
+    game::assets::{HandleMap, ImageKey},
     screen::Screen,
 };
 use bevy::prelude::*;
+use bevy_ecs_tilemap::helpers::square_grid::neighbors::SquareDirection;
 use bevy_ecs_tilemap::tiles::TilePos;
 
 pub(super) fn plugin(app: &mut App) {
@@ -52,6 +49,7 @@ fn spawn_player(
             y: start.1,
         },
         AutoTilePosPlacement,
+        Facing::East,
         setup_movement_controls(),
         CameraFollow { threshold: 300.0 },
     ));

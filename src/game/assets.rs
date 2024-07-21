@@ -171,7 +171,7 @@ impl FromWorld for HandleMap<SfxKey> {
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Reflect)]
 pub enum SoundtrackKey {
-    Credits,
+    Menus,
     Gameplay,
 }
 
@@ -184,7 +184,7 @@ impl FromWorld for HandleMap<SoundtrackKey> {
         let asset_server = world.resource::<AssetServer>();
         [
             (
-                SoundtrackKey::Credits,
+                SoundtrackKey::Menus,
                 asset_server.load("audio/soundtracks/Monkeys Spinning Monkeys.ogg"),
             ),
             (

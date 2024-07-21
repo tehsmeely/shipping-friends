@@ -42,7 +42,7 @@ fn enter_credits(mut commands: Commands) {
             children.button("Back").insert(CreditsAction::Back);
         });
 
-    commands.trigger(PlaySoundtrack::Key(SoundtrackKey::Credits));
+    commands.trigger(PlaySoundtrack::Key(SoundtrackKey::Menus));
 }
 
 fn exit_credits(mut commands: Commands) {

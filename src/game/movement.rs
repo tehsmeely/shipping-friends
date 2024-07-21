@@ -4,39 +4,76 @@
 //! consider using a [fixed timestep](https://github.com/bevyengine/bevy/blob/latest/examples/movement/physics_in_fixed_timestep.rs).
 
 use crate::game::controls::{CameraAction, PlayerAction};
+use crate::game::game_ui::TurnAction;
 use crate::game::spawn::level::TilemapOffset;
 use crate::AppSet;
+use bevy::reflect::{ApplyError, ReflectMut, ReflectOwned, ReflectRef, TypeInfo};
 use bevy::{prelude::*, window::PrimaryWindow};
+use bevy_ecs_tilemap::helpers::square_grid::neighbors::SquareDirection;
 use bevy_ecs_tilemap::map::TilemapType;
 use bevy_ecs_tilemap::prelude::TilemapGridSize;
 use bevy_ecs_tilemap::tiles::TilePos;
 use leafwing_input_manager::action_state::ActionState;
+use std::any::Any;
 
 pub(super) fn plugin(app: &mut App) {
-    // Record directional input as movement controls.
-    app.register_type::<MovementController>();
+    app.register_type::<(AutoTilePosPlacement, Facing)>();
     app.add_systems(
         Update,
-        record_movement_controller.in_set(AppSet::RecordInput),
+        (auto_tile_pos, handle_player_movement, apply_facing),
     );
-
-    // Apply movement based on controls.
-    app.register_type::<(Movement, WrapWithinWindow)>();
-    app.add_systems(
-        Update,
-        (apply_movement, wrap_within_window)
-            .chain()
-            .in_set(AppSet::Update),
-    );
-
-    app.register_type::<AutoTilePosPlacement>();
-    app.add_systems(Update, (auto_tile_pos, handle_player_movement));
+    app.observe(apply_turn_actions);
 }
 
-#[derive(Component, Reflect, Default)]
+#[derive(Component, Reflect, Default, Debug)]
 #[reflect(Component)]
 /// Automatically place entities with this property in the transform with their TilePos
 pub struct AutoTilePosPlacement;
+
+#[derive(Component, Debug, Reflect)]
+#[reflect(Component)]
+/// Cardinal directions
+pub enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl Facing {
+    pub fn to_offset(&self) -> IVec2 {
+        match self {
+            Self::East => IVec2::new(1, 0),
+            Self::North => IVec2::new(0, 1),
+            Self::West => IVec2::new(-1, 0),
+            Self::South => IVec2::new(0, -1),
+        }
+    }
+
+    fn rotate_cw(&self) -> Self {
+        match self {
+            Self::East => Self::South,
+            Self::North => Self::East,
+            Self::West => Self::North,
+            Self::South => Self::West,
+        }
+    }
+    fn rotate_acw(&self) -> Self {
+        match self {
+            Self::East => Self::North,
+            Self::North => Self::West,
+            Self::West => Self::South,
+            Self::South => Self::East,
+        }
+    }
+
+    pub fn rotate(&mut self, clockwise: bool) {
+        *self = match clockwise {
+            true => self.rotate_cw(),
+            false => self.rotate_acw(),
+        }
+    }
+}
 
 fn auto_tile_pos(
     mut query: Query<(&TilePos, &mut Transform), (With<AutoTilePosPlacement>, Changed<TilePos>)>,
@@ -48,6 +85,25 @@ fn auto_tile_pos(
             let world_pos = tile_pos.center_in_world(tm_grid_size, tm_type);
             let world_pos = world_pos + tilemap_offset.0.translation.truncate();
             transform.translation = world_pos.extend(transform.translation.z);
+        }
+    }
+}
+
+fn apply_facing(mut query: Query<(&Facing, &mut Transform), Changed<Facing>>) {
+    for (facing, mut transform) in &mut query {
+        match facing {
+            Facing::East => {
+                transform.rotation = Quat::from_rotation_z(0.0);
+            }
+            Facing::West => {
+                transform.rotation = Quat::from_rotation_z(std::f32::consts::PI);
+            }
+            Facing::South => {
+                transform.rotation = Quat::from_rotation_z(-std::f32::consts::PI / 2.0);
+            }
+            Facing::North => {
+                transform.rotation = Quat::from_rotation_z(std::f32::consts::PI / 2.0);
+            }
         }
     }
 }
@@ -76,72 +132,16 @@ fn handle_player_movement(mut camera_query: Query<(&mut TilePos, &ActionState<Pl
     }
 }
 
-#[derive(Component, Reflect, Default)]
-#[reflect(Component)]
-pub struct MovementController(pub Vec2);
+#[derive(Event, Debug)]
+pub struct ApplyTurnActions(pub Vec<TurnAction>);
 
-fn record_movement_controller(
-    input: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<&mut MovementController>,
+fn apply_turn_actions(
+    trigger: Trigger<ApplyTurnActions>,
+    mut player_query: Query<(&mut Facing, &mut TilePos)>,
 ) {
-    // Collect directional input.
-    let mut intent = Vec2::ZERO;
-    if input.pressed(KeyCode::KeyW) || input.pressed(KeyCode::ArrowUp) {
-        intent.y += 1.0;
-    }
-    if input.pressed(KeyCode::KeyS) || input.pressed(KeyCode::ArrowDown) {
-        intent.y -= 1.0;
-    }
-    if input.pressed(KeyCode::KeyA) || input.pressed(KeyCode::ArrowLeft) {
-        intent.x -= 1.0;
-    }
-    if input.pressed(KeyCode::KeyD) || input.pressed(KeyCode::ArrowRight) {
-        intent.x += 1.0;
-    }
-
-    // Normalize so that diagonal movement has the same speed as
-    // horizontal and vertical movement.
-    let intent = intent.normalize_or_zero();
-
-    // Apply movement intent to controllers.
-    for mut controller in &mut controller_query {
-        controller.0 = intent;
-    }
-}
-
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub struct Movement {
-    /// Since Bevy's default 2D camera setup is scaled such that
-    /// one unit is one pixel, you can think of this as
-    /// "How many pixels per second should the player move?"
-    /// Note that physics engines may use different unit/pixel ratios.
-    pub speed: f32,
-}
-
-fn apply_movement(
-    time: Res<Time>,
-    mut movement_query: Query<(&MovementController, &Movement, &mut Transform)>,
-) {
-    for (controller, movement, mut transform) in &mut movement_query {
-        let velocity = movement.speed * controller.0;
-        transform.translation += velocity.extend(0.0) * time.delta_seconds();
-    }
-}
-
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub struct WrapWithinWindow;
-
-fn wrap_within_window(
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    mut wrap_query: Query<&mut Transform, With<WrapWithinWindow>>,
-) {
-    let size = window_query.single().size() + 256.0;
-    let half_size = size / 2.0;
-    for mut transform in &mut wrap_query {
-        let position = transform.translation.xy();
-        let wrapped = (position + half_size).rem_euclid(size) - half_size;
-        transform.translation = wrapped.extend(transform.translation.z);
+    for (mut facing, mut tilepos) in player_query.iter_mut() {
+        for action in trigger.event().0.iter() {
+            action.apply(&mut facing, &mut tilepos);
+        }
     }
 }

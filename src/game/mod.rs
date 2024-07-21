@@ -7,7 +7,9 @@ pub mod assets;
 pub mod audio;
 mod camera;
 pub mod controls;
+mod game_ui;
 mod movement;
+pub mod settings;
 pub mod spawn;
 
 pub(super) fn plugin(app: &mut App) {
@@ -19,5 +21,6 @@ pub(super) fn plugin(app: &mut App) {
         spawn::plugin,
         controls::plugin,
         camera::plugin,
+        game_ui::plugin,
     ));
 }
