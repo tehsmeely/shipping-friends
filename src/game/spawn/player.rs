@@ -3,13 +3,14 @@
 use crate::game::assets::AtlasLayoutKey;
 use crate::game::camera::CameraFollow;
 use crate::game::controls::setup_movement_controls;
-use crate::game::movement::{AutoTilePosPlacement, Facing};
-use crate::game::spawn::level::get_start;
+use crate::game::movement::{AutoFacingTurn, AutoGridPlacement, Facing};
+use crate::game::spawn::level::GRID_SIZE_V;
 use crate::{
     game::assets::{HandleMap, ImageKey},
     screen::Screen,
 };
 use bevy::prelude::*;
+use bevy_ecs_ldtk::GridCoords;
 use bevy_ecs_tilemap::helpers::square_grid::neighbors::SquareDirection;
 use bevy_ecs_tilemap::tiles::TilePos;
 
@@ -32,25 +33,24 @@ fn spawn_player(
     texture_atlas_layouts: Res<HandleMap<AtlasLayoutKey>>,
 ) {
     let layout = texture_atlas_layouts[&AtlasLayoutKey::BulkLoadVessel].clone();
-    let start = get_start();
+    let coords = GridCoords::new(3, 3);
+    let translation = bevy_ecs_ldtk::utils::grid_coords_to_translation(coords, GRID_SIZE_V);
     commands.spawn((
         Name::new("Player"),
         Player,
         SpriteBundle {
             texture: image_handles[&ImageKey::BulkLoadVessel].clone(),
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0))
-                .with_scale(Vec3::splat(0.5)),
+            transform: Transform::from_translation(translation.extend(2.0))
+                .with_scale(Vec3::splat(0.25)),
             ..Default::default()
         },
         TextureAtlas { layout, index: 0 },
         StateScoped(Screen::Playing),
-        TilePos {
-            x: start.0,
-            y: start.1,
-        },
-        AutoTilePosPlacement,
+        coords,
+        AutoGridPlacement,
+        AutoFacingTurn,
         Facing::East,
         setup_movement_controls(),
-        CameraFollow { threshold: 300.0 },
+        CameraFollow { threshold: 120.0 },
     ));
 }

@@ -5,10 +5,11 @@
 
 use crate::game::controls::{CameraAction, PlayerAction};
 use crate::game::game_ui::{CycleNum, GlobalTurnLock, TurnAction, TurnActions};
-use crate::game::spawn::level::TilemapOffset;
+use crate::game::spawn::level::{LevelWalls, TilemapOffset, GRID_SIZE_V};
 use crate::AppSet;
 use bevy::reflect::{ApplyError, ReflectMut, ReflectOwned, ReflectRef, TypeInfo};
 use bevy::{prelude::*, window::PrimaryWindow};
+use bevy_ecs_ldtk::GridCoords;
 use bevy_ecs_tilemap::helpers::square_grid::neighbors::SquareDirection;
 use bevy_ecs_tilemap::map::TilemapType;
 use bevy_ecs_tilemap::prelude::TilemapGridSize;
@@ -17,7 +18,7 @@ use leafwing_input_manager::action_state::ActionState;
 use std::any::Any;
 
 pub(super) fn plugin(app: &mut App) {
-    app.register_type::<(AutoTilePosPlacement, Facing)>();
+    app.register_type::<(AutoGridPlacement, AutoFacingTurn, Facing)>();
     app.add_systems(
         Update,
         (auto_tile_pos, handle_player_movement, apply_facing),
@@ -28,13 +29,19 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Component, Reflect, Default, Debug)]
 #[reflect(Component)]
 /// Automatically place entities with this property in the transform with their TilePos
-pub struct AutoTilePosPlacement;
+pub struct AutoGridPlacement;
 
-#[derive(Component, Debug, Reflect)]
+#[derive(Component, Reflect, Default, Debug)]
+#[reflect(Component)]
+/// Automatically face entities with this property to match their Facing property
+pub struct AutoFacingTurn;
+
+#[derive(Component, Default, Debug, Reflect, Clone, Copy)]
 #[reflect(Component)]
 /// Cardinal directions
 pub enum Facing {
     North,
+    #[default]
     East,
     South,
     West,
@@ -76,20 +83,18 @@ impl Facing {
 }
 
 fn auto_tile_pos(
-    mut query: Query<(&TilePos, &mut Transform), (With<AutoTilePosPlacement>, Changed<TilePos>)>,
-    map_query: Query<(&TilemapGridSize, &TilemapType)>,
-    tilemap_offset: Res<TilemapOffset>,
+    mut query: Query<(&GridCoords, &mut Transform), (With<AutoGridPlacement>, Changed<GridCoords>)>,
 ) {
-    if let Ok((tm_grid_size, tm_type)) = map_query.get_single() {
-        for (tile_pos, mut transform) in &mut query {
-            let world_pos = tile_pos.center_in_world(tm_grid_size, tm_type);
-            let world_pos = world_pos + tilemap_offset.0.translation.truncate();
-            transform.translation = world_pos.extend(transform.translation.z);
-        }
+    for (grid_coords, mut transform) in &mut query {
+        transform.translation =
+            bevy_ecs_ldtk::utils::grid_coords_to_translation(*grid_coords, GRID_SIZE_V)
+                .extend(transform.translation.z);
     }
 }
 
-fn apply_facing(mut query: Query<(&Facing, &mut Transform), Changed<Facing>>) {
+fn apply_facing(
+    mut query: Query<(&Facing, &mut Transform), (Changed<Facing>, With<AutoFacingTurn>)>,
+) {
     for (facing, mut transform) in &mut query {
         match facing {
             Facing::East => {
@@ -108,25 +113,33 @@ fn apply_facing(mut query: Query<(&Facing, &mut Transform), Changed<Facing>>) {
     }
 }
 
-fn handle_player_movement(mut camera_query: Query<(&mut TilePos, &ActionState<PlayerAction>)>) {
-    for (mut tilepos, inputs) in &mut camera_query {
+fn handle_player_movement(
+    mut camera_query: Query<(&mut GridCoords, &ActionState<PlayerAction>)>,
+
+    level_walls: Res<LevelWalls>,
+) {
+    for (mut orig_grid_coords, inputs) in &mut camera_query {
         if let Some(action) = PlayerAction::ALL
             .iter()
             .find(|action| inputs.just_pressed(action))
         {
+            let mut grid_coords = orig_grid_coords.clone();
             match action {
                 PlayerAction::Up => {
-                    tilepos.y += 1;
+                    grid_coords.y += 1;
                 }
                 PlayerAction::Down => {
-                    tilepos.y -= 1;
+                    grid_coords.y -= 1;
                 }
                 PlayerAction::Left => {
-                    tilepos.x -= 1;
+                    grid_coords.x -= 1;
                 }
                 PlayerAction::Right => {
-                    tilepos.x += 1;
+                    grid_coords.x += 1;
                 }
+            }
+            if !level_walls.in_wall(&grid_coords) {
+                *orig_grid_coords = grid_coords;
             }
         }
     }
@@ -137,15 +150,21 @@ pub struct ApplyTurnActions(pub TurnActions);
 
 fn apply_turn_actions(
     trigger: Trigger<ApplyTurnActions>,
-    mut player_query: Query<(&mut Facing, &mut TilePos)>,
+    mut player_query: Query<(&mut Facing, &mut GridCoords)>,
     mut global_turn_lock: ResMut<GlobalTurnLock>,
     mut cycle_num: ResMut<CycleNum>,
+    level_walls: Res<LevelWalls>,
 ) {
-    for (mut facing, mut tilepos) in player_query.iter_mut() {
+    for (mut facing, mut coords) in player_query.iter_mut() {
         let turn_actions = trigger.event();
         for action in turn_actions.0.clone().0.iter() {
             if let Some(action) = action {
-                action.apply(&mut facing, &mut tilepos);
+                let (new_facing, new_coords) = action.apply(&facing, &coords);
+                if !level_walls.in_wall(&new_coords) {
+                    *facing = new_facing;
+                    *coords = new_coords;
+                }
+                // TODO: Should we stop taking actions if you hit a wall, or continue?
             }
         }
         global_turn_lock.unlock();

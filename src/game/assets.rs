@@ -3,6 +3,7 @@ use bevy::{
     render::texture::{ImageLoaderSettings, ImageSampler},
     utils::HashMap,
 };
+use bevy_ecs_ldtk::assets::LdtkProject;
 
 pub(super) fn plugin(app: &mut App) {
     app.register_type::<HandleMap<ImageKey>>();
@@ -16,6 +17,9 @@ pub(super) fn plugin(app: &mut App) {
 
     app.register_type::<HandleMap<SoundtrackKey>>();
     app.init_resource::<HandleMap<SoundtrackKey>>();
+
+    app.register_type::<HandleMap<LdtkKey>>();
+    app.init_resource::<HandleMap<LdtkKey>>();
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Reflect)]
@@ -34,11 +38,20 @@ pub enum AtlasLayoutKey {
     LoadingCrane,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Reflect)]
+pub enum LdtkKey {
+    Main,
+}
+
 impl AssetKey for ImageKey {
     type Asset = Image;
 }
 impl AssetKey for AtlasLayoutKey {
     type Asset = TextureAtlasLayout;
+}
+
+impl AssetKey for LdtkKey {
+    type Asset = LdtkProject;
 }
 
 impl FromWorld for HandleMap<ImageKey> {
@@ -75,7 +88,7 @@ impl FromWorld for HandleMap<ImageKey> {
             (
                 ImageKey::LoadingCrane,
                 asset_server.load_with_settings(
-                    "images/ship_loading_crane.png",
+                    "images/ship_loading_crane_smol.png",
                     |settings: &mut ImageLoaderSettings| {
                         settings.sampler = ImageSampler::nearest();
                     },
@@ -193,6 +206,13 @@ impl FromWorld for HandleMap<SoundtrackKey> {
             ),
         ]
         .into()
+    }
+}
+
+impl FromWorld for HandleMap<LdtkKey> {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.resource::<AssetServer>();
+        [(LdtkKey::Main, asset_server.load("levels/maps.ldtk"))].into()
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::game::movement::{ApplyTurnActions, Facing};
 use crate::screen::Screen;
 use bevy::prelude::*;
+use bevy_ecs_ldtk::GridCoords;
 use bevy_ecs_tilemap::tiles::TilePos;
 use bevy_egui::egui::{vec2, Color32, Frame, Id, Stroke, WidgetText};
 use bevy_egui::{egui, EguiContexts};
@@ -37,26 +38,24 @@ impl GlobalTurnLock {
     }
 }
 
-fn safe_u32_add(a: u32, b: i32) -> u32 {
-    if b.is_negative() {
-        a.saturating_sub(b.wrapping_abs() as u32)
-    } else {
-        a.saturating_add(b as u32)
-    }
-}
 impl TurnAction {
-    pub fn apply(&self, facing: &mut Facing, tilepos: &mut TilePos) {
+    pub fn apply(&self, facing: &Facing, coords: &GridCoords) -> (Facing, GridCoords) {
+        let mut new_facing = *facing;
+        let mut new_coords = *coords;
         match self {
             TurnAction::Forward => {
                 let offset = facing.to_offset();
-                tilepos.x = safe_u32_add(tilepos.x, offset.x);
-                tilepos.y = safe_u32_add(tilepos.y, offset.y);
+                new_coords.x += offset.x;
+                new_coords.y += offset.y;
+                (new_facing, new_coords)
             }
             TurnAction::RotateClockwise => {
-                facing.rotate(true);
+                new_facing.rotate(true);
+                (new_facing, new_coords)
             }
             TurnAction::RotateAntiClockwise => {
-                facing.rotate(false);
+                new_facing.rotate(false);
+                (new_facing, new_coords)
             }
         }
     }
@@ -133,6 +132,8 @@ impl CycleStore {
         Self {
             turn_actions: TurnActions([None; 6]),
             store: vec![
+                TurnAction::Forward,
+                TurnAction::Forward,
                 TurnAction::Forward,
                 TurnAction::RotateClockwise,
                 TurnAction::RotateAntiClockwise,

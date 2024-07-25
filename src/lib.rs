@@ -5,11 +5,13 @@ mod screen;
 mod ui;
 
 use crate::game::controls::setup_camera_controls;
+use crate::screen::Screen;
 use bevy::{
     asset::AssetMetaCheck,
     audio::{AudioPlugin, Volume},
     prelude::*,
 };
+use bevy_ecs_ldtk::LdtkPlugin;
 use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -53,11 +55,17 @@ impl Plugin for AppPlugin {
                         volume: Volume::new(0.3),
                     },
                     ..default()
-                }),
+                })
+                .set(ImagePlugin::default_nearest()),
         );
 
         // Add external plugins
-        app.add_plugins((TilemapPlugin, EguiPlugin, WorldInspectorPlugin::new()));
+        app.add_plugins((
+            TilemapPlugin,
+            EguiPlugin,
+            WorldInspectorPlugin::new(),
+            LdtkPlugin,
+        ));
 
         app.init_resource::<game::settings::Settings>();
 
